@@ -24,12 +24,14 @@ function tools(mode: AccessMode): string {
     : "Read,Write,Edit,Grep,Glob,Bash";
 }
 
-// Writers run Bash without prompts inside the OS sandbox, which confines writes to the cwd and a
-// per-user temp directory. The model cannot opt a command out, and Claude refuses to start when
-// the sandbox is unavailable. A linked worktree's shared git directory is otherwise writable, so
-// run.ts passes its literal path, which discoverSharedGitDir checked for glob characters.
-function permissions(mode: AccessMode, sharedGitDir: string | null): string[] {
+function permissions(mode: AccessMode, settingsPath: string | null): string[] {
   if (mode === "read-only") return ["--permission-mode", "plan"];
+  if (settingsPath === null) throw new Error("claude writer argv needs the lane's settings path");
+  return ["--permission-mode", "acceptEdits", "--settings", settingsPath];
+}
+
+function settings(lane: Lane, sharedGitDir: string | null = null): string {
+  if (lane.access.mode === "read-only") return "{}\n";
   const sandbox = {
     enabled: true,
     autoAllowBashIfSandboxed: true,
@@ -37,7 +39,7 @@ function permissions(mode: AccessMode, sharedGitDir: string | null): string[] {
     failIfUnavailable: true,
     ...(sharedGitDir === null ? {} : { filesystem: { denyWrite: [sharedGitDir] } }),
   };
-  return ["--permission-mode", "acceptEdits", "--settings", JSON.stringify({ sandbox })];
+  return `${JSON.stringify({ sandbox })}\n`;
 }
 
 function loggedIn(stdout: string): boolean {
@@ -102,7 +104,7 @@ export const claude = adapter({
   },
   launch: {
     prompt: "stdin",
-    sidecar: null,
+    sidecar: { output: null, config: { name: "settings.json", content: settings } },
     supports: ["read-only", "isolated-write"],
     needsSharedGitDir: (access) => access.mode === "isolated-write",
     argv: (lane, facts) => [
@@ -110,7 +112,7 @@ export const claude = adapter({
       "--model",
       lane.model,
       ...effortArgs(lane, ["--effort", lane.effort]),
-      ...permissions(lane.access.mode, facts.sharedGitDir),
+      ...permissions(lane.access.mode, facts.providerSidecar?.config ?? null),
       "--setting-sources",
       "project",
       "--strict-mcp-config",

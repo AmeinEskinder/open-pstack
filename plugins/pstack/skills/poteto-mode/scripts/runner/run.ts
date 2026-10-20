@@ -77,7 +77,7 @@ interface ReservedSidecar {
   readonly configContent: string | null;
 }
 
-function providerSidecar(lane: Lane): ReservedSidecar | null {
+function providerSidecar(lane: Lane, sharedGitDir: string | null = null): ReservedSidecar | null {
   const declared = lane.adapter.launch.sidecar;
   if (declared === null) return null;
   const directory = `${lane.receiptPath}.provider`;
@@ -87,8 +87,14 @@ function providerSidecar(lane: Lane): ReservedSidecar | null {
       output: declared.output === null ? null : join(directory, declared.output),
       config: declared.config === null ? null : join(directory, declared.config.name),
     },
-    configContent: declared.config?.content(lane) ?? null,
+    configContent: declared.config?.content(lane, sharedGitDir) ?? null,
   };
+}
+
+function writeProviderConfig(sidecar: ReservedSidecar | null): void {
+  if (sidecar?.facts.config == null || sidecar.configContent === null) return;
+  mkdirSync(dirname(sidecar.facts.config), { recursive: true, mode: 0o700 });
+  writeFileSync(sidecar.facts.config, sidecar.configContent, { encoding: "utf8", mode: 0o600, flag: "wx" });
 }
 
 function reserveOutputs(lane: Lane): ModelStreams {
@@ -114,10 +120,7 @@ function reserveOutputs(lane: Lane): ModelStreams {
     if (sidecar !== null) {
       mkdirSync(sidecar.facts.directory, { mode: 0o700 });
       created.push(sidecar.facts.directory);
-      if (sidecar.facts.config !== null && sidecar.configContent !== null) {
-        mkdirSync(dirname(sidecar.facts.config), { recursive: true, mode: 0o700 });
-        writeFileSync(sidecar.facts.config, sidecar.configContent, { encoding: "utf8", mode: 0o600, flag: "wx" });
-      }
+      if (!lane.adapter.launch.needsSharedGitDir(lane.access)) writeProviderConfig(sidecar);
     }
     return { stdout, stderr };
   } catch (error) {
@@ -741,7 +744,9 @@ async function executeLane(
       writeReceipt(lane.receiptPath, receipt);
       return { exitCode: statusExitCode(discovery.status), receipt };
     }
-    const facts: LaunchFacts = { sharedGitDir: discovery.sharedGitDir, providerSidecar: providerSidecar(lane)?.facts ?? null };
+    const sidecar = providerSidecar(lane, discovery.sharedGitDir);
+    writeProviderConfig(sidecar);
+    const facts: LaunchFacts = { sharedGitDir: discovery.sharedGitDir, providerSidecar: sidecar?.facts ?? null };
     launchArgs = adapter.launch.argv(lane, facts);
     progress.argv = [executable, ...launchArgs];
   }

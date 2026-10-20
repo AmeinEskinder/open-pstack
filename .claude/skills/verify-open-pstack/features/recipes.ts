@@ -281,11 +281,16 @@ const writer: Case = {
     if (receipt.status !== 'complete') throw new Error(`receipt-status:${receipt.status}`);
     if (receipt.parent !== 'codex' || receipt.provider !== 'claude' || receipt.model !== 'opus' || receipt.effort !== 'max' || receipt.mode !== 'isolated-write' || receipt.cwd !== lane) throw new Error('receipt-route-mismatch');
     if (receipt.outputPath !== join(f.dir, 'writer.output.md') || !(Date.parse(receipt.startedAt) >= record.started)) throw new Error('receipt-not-this-session');
-    const settings = parseJson(receipt.argv[receipt.argv.indexOf('--settings') + 1]) as { sandbox?: { filesystem?: { denyWrite?: unknown } } } | undefined;
-    if (!Bun.deepEquals(settings?.sandbox?.filesystem?.denyWrite, [await realpath(join(f.dir, 'writer-repo/.git'))])) throw new Error('shared-git-not-denied');
+    const settingsPath = join(f.dir, 'writer.receipt.json.provider/settings.json');
+    if (receipt.argv[receipt.argv.indexOf('--settings') + 1] !== settingsPath) throw new Error('writer-settings-path-mismatch');
+    const settings: unknown = parseJson(await readFile(settingsPath, 'utf8'));
+    if (!Bun.deepEquals(settings, { sandbox: {
+      enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false, failIfUnavailable: true,
+      filesystem: { denyWrite: [await realpath(join(f.dir, 'writer-repo/.git'))] },
+    } })) throw new Error('writer-sandbox-mismatch');
     const effect = await written(record, join(lane, 'WRITTEN.md'));
     if ((await readFile(join(lane, 'WRITTEN.md'), 'utf8')).trim() !== 'PONG') throw new Error('writer-effect-mismatch:WRITTEN.md');
-    return { assertions: ['runner-ran', 'receipt-complete', 'shared-git-denied', effect], files: [join(f.dir, 'writer.receipt.json'), join(lane, 'WRITTEN.md')] };
+    return { assertions: ['runner-ran', 'receipt-complete', 'shared-git-denied', effect], files: [join(f.dir, 'writer.receipt.json'), settingsPath, join(lane, 'WRITTEN.md')] };
   },
 };
 

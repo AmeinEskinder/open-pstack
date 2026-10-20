@@ -39,10 +39,24 @@ test('the runner recipe adds one linked-worktree writer case for a Codex parent 
   const record: SessionRecord = { harness: 'codex', exitCode: 0, started: Date.now() - 1000, skills: ['pstack:poteto-mode'], tools: [],
     commands: [await launch(f, writer.prompt(f))], context: [] };
 
-  expect((await writer.assert(record, f)).assertions).toEqual(['runner-ran', 'receipt-complete', 'shared-git-denied', 'file:WRITTEN.md']);
+  const evidence = await writer.assert(record, f);
+  expect(evidence.assertions).toEqual(['runner-ran', 'receipt-complete', 'shared-git-denied', 'file:WRITTEN.md']);
+  const settingsPath = join(dir, 'writer.receipt.json.provider/settings.json');
+  expect(evidence.files).toContain(settingsPath);
 
   const path = join(dir, 'writer.receipt.json'), receipt = JSON.parse(await readFile(path, 'utf8'));
   const settings = receipt.argv.indexOf('--settings');
   await writeFile(path, JSON.stringify({ ...receipt, argv: [...receipt.argv.slice(0, settings), ...receipt.argv.slice(settings + 2)] }));
-  await expect(writer.assert(record, f)).rejects.toThrow('shared-git-not-denied');
+  await expect(writer.assert(record, f)).rejects.toThrow('writer-settings-path-mismatch');
+
+  await writeFile(path, JSON.stringify(receipt));
+  const content = await readFile(settingsPath, 'utf8');
+  for (const change of [
+    { enabled: false }, { autoAllowBashIfSandboxed: false }, { allowUnsandboxedCommands: true },
+    { failIfUnavailable: false }, { filesystem: { denyWrite: [] } },
+  ]) {
+    const settings = JSON.parse(content);
+    await writeFile(settingsPath, JSON.stringify({ ...settings, sandbox: { ...settings.sandbox, ...change } }));
+    await expect(writer.assert(record, f)).rejects.toThrow('writer-sandbox-mismatch');
+  }
 });

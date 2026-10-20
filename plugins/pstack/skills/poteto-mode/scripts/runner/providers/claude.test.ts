@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { access } from "../registry/contract.ts";
 import type { LaneRequest } from "../registry/index.ts";
-import { adapterSuite, testLane } from "./adapter-suite.ts";
+import { adapterSuite, testFacts, testLane } from "./adapter-suite.ts";
 import { claude } from "./claude.ts";
 import { grok } from "./grok.ts";
 
@@ -10,7 +10,7 @@ adapterSuite(claude);
 const lane = (request: Partial<LaneRequest> = {}) =>
   testLane({ provider: "claude", model: "fable", ...request });
 const argv = (request: Partial<LaneRequest> = {}, sharedGitDir: string | null = null) =>
-  claude.launch.argv(lane(request), { sharedGitDir, providerSidecar: null });
+  claude.launch.argv(lane(request), testFacts(claude, sharedGitDir));
 const parse = (stdout: string) => claude.parse({ exitCode: 0, stdout, stderr: "", sidecar: null }, lane());
 
 describe("claude launch", () => {
@@ -60,14 +60,15 @@ describe("claude launch", () => {
       allowUnsandboxedCommands: false,
       failIfUnavailable: true,
     };
-    const settings = (args: readonly string[]): unknown =>
-      JSON.parse(args[args.indexOf("--settings") + 1] ?? "");
+    const settings = (sharedGitDir: string | null = null): unknown =>
+      JSON.parse(claude.launch.sidecar!.config!.content(lane(writer), sharedGitDir));
 
-    expect(settings(argv(writer))).toEqual({ sandbox });
-    expect(settings(argv(writer, "/repo/.git"))).toEqual({
+    expect(argv(writer)).toEqual(expect.arrayContaining(["--settings", "/tmp/receipt.json.provider/settings.json"]));
+    expect(settings()).toEqual({ sandbox });
+    expect(settings("/repo/.git")).toEqual({
       sandbox: { ...sandbox, filesystem: { denyWrite: ["/repo/.git"] } },
     });
-    expect(settings(argv(writer, "/srv/my repo/.git"))).toEqual({
+    expect(settings("/srv/my repo/.git")).toEqual({
       sandbox: { ...sandbox, filesystem: { denyWrite: ["/srv/my repo/.git"] } },
     });
 

@@ -109,7 +109,7 @@ export interface LaunchFacts {
 
 export interface ProviderSidecar {
   readonly output: string | null;
-  readonly config: { readonly name: string; content(lane: Lane): string } | null;
+  readonly config: { readonly name: string; content(lane: Lane, sharedGitDir?: string | null): string } | null;
 }
 
 export interface ProviderAdapter {
